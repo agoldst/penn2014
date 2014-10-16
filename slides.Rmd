@@ -1,0 +1,531 @@
+---
+title: Topic Modeling and the Sociology of Literature
+author: |
+    Andrew Goldstone  
+    Rutgers University, New Brunswick  
+    [andrewgoldstone.com](http://andrewgoldstone.com)
+date: |
+    October 14, 2014  
+    Penn Digital Humanities Forum
+---
+
+```{r setup, cache=F, include=F}
+opts_chunk$set(echo=F,warning=F,prompt=F,comment="",
+               autodep=T,cache=T,dev="tikz",
+               fig.width=4.5,fig.height=3,size ='footnotesize',
+               dev.args=list(pointsize=12))
+options(width=70)
+options(tikzDefaultEngine="xetex")
+options(tikzXelatexPackages=c(
+    "\\usepackage{tikz}\n",
+    "\\usepackage[active,tightpage,xetex]{preview}\n",
+    "\\usepackage{fontspec,xunicode}\n",
+    "\\setmainfont{Gill Sans}\n",
+    "\\PreviewEnvironment{pgfpicture}\n",
+    "\\setlength\\PreviewBorder{0pt}\n"))
+library("xtable")
+library("lubridate")
+library("stringr")
+library("dfrtopics")
+library("dplyr")
+dep_auto()
+```
+
+```{r vis-params}
+smoother <- function (...) {
+  geom_smooth(method="loess",span=0.5,color="blue",se=F,...)
+}
+series_geom <- geom_bar(stat="identity",width=90)
+
+plot_theme <- theme(strip.background=element_blank())
+
+```
+
+```{r load-model, include=F}
+tmhls_root <- "/Users/agoldst/Documents/research/20c/hls/tmhls/"
+mdir <- file.path(tmhls_root, "models/hls_k150_v100K")
+m <- list()
+m$keys <- read.csv(file.path(mdir,"keys_fixed.csv"),as.is=T)
+m$doctops <- read.csv(file.path(mdir,"doc_topics.csv"),as.is=T)
+
+m$n <- max(m$keys$topic)
+m$vocab <- readLines(file.path(mdir,"vocab.txt"))
+
+meta_all <- read_metadata(file.path(tmhls_root, "dfr-data",
+                                c("elh_ci_all",
+                                  "mlr1905-1970",
+                                   "mlr1971-2013",
+                                   "modphil_all",
+                                   "nlh_all",
+                                   "pmla_all",
+                                   "res1925-1980",
+                                   "res1981-2012"),
+                                "citations.CSV"))
+meta <- meta_all[meta_all$id %in% m$doctops$id,]
+meta$date <- pubdate_Date(meta$pubdate)
+
+m$dtw <- doc_topics_wide(m$doctops,meta)
+m$series <- topic_proportions_series_frame(topic_year_matrix(m$dtw))
+m$top_words <- topic_names(m$keys)
+m$series$label <- factor(m$top_words[m$series$topic])
+```
+
+# agenda
+
+1. Why topic-model?
+2. 
+    a. How do you make it work?
+    b. What's going on?
+3. What can you do with a model?
+
+Download these slides: [andrewgoldstone.com/penn2014](http://andrewgoldstone.com/penn2014/)
+
+
+# let's be reductive
+
+. . .
+
+Even with the assistance of computers, one major difficulty of content analysis is that there is too much information in texts. Their richness and detail preclude analysis without some form of data reduction. The key to content analysis, and indeed to all modes of inquiry, is choosing a strategy for information loss that yields substantively interesting and theoretically useful generalizations while reducing the amount of information addressed by the analyst.
+
+\fullcite[40]{weber:basic}
+
+
+
+# "the limitations are apparent"
+
+Sociologists ordinarily analyze texts in one of three ways. Some scholars simply read texts and produce virtuoso interpretations based on insights their readings produce. The limitations of this approach for generating reproducible results are apparent.
+
+\cite[577]{dimaggio-et-al:exploiting}
+
+
+
+# post-Marxist pre-DH
+
+The analytical phase proper consists mainly in constructing categories (containing a series of terms or instances...) and working with these categories. In this way, for example, one can compare the presence of categories in different texts from the same corpus or different corpora; examine the instances or representatives that embody the category in different texts; make a list of the qualities attributed to an instance, come to know the terms most often associated with a category.  
+
+. . .
+
+\begin{center}
+\begin{tabular}{lrlr}
+1960s & & 1990s & \\
+ENTREPRISE@ & 1,330 & ENTREPRISE@ & 1,404 \\
+CADRE@  & 986 & travail & 507 \\
+SUBORDONNÉS@ & 797 & organisation & 451 \\
+DIRIGEANTS@ & 724 & RÉSEAU@ & 450 \\
+\ldots
+\end{tabular}
+\end{center}
+
+\fullcite[546, 548]{boltanski-chiapello:new}
+
+
+
+# a modeling process
+
+. . .
+
+1. Obtain digitized texts
+2. Featurize texts into ``data''
+3. Model the data
+4. Explore the model: what is valid? what is interesting?
+5. Use the model in an argument: explanatory analysis (?)
+
+. . .
+
+\fullcite{goldstone-underwood:quiet}  
+<http://rci.rutgers.edu/~ag978/quiet/#/about>
+
+
+
+# obtaining texts
+
+## Data: not raw (1)
+
+[dfr.jstor.org](http://dfr.jstor.org)
+
+    WORDCOUNTS,WEIGHT
+    the,766
+    of,482
+    and,305
+    in,259
+    to,224
+    a,195
+    new,101
+
+
+# data: not raw (2)
+
+## 2012
+
+`10.2307/25501736,10.2307/25501736	,Fantasies of the New Class: The New Criticism_ Harvard Sociology_ and the Idea of the University	,Stephen Schryer	,PMLA	,122	,3	,2007-05-01T00:00:00Z	,pp. 663-678	,Modern Language Association	,fla	,	,`
+
+## 2014
+
+`10.2307/25501736	10.2307/25501736	Fantasies of the New Class: The New Criticism, Harvard Sociology, and the Idea of the University	Stephen Schryer	PMLA	122	3	2007-05-01T00:00:00Z	pp. 663-678	Modern Language Association	fla		This essay examines the professionalization of United States literary studies and sociology between the 1930s and 1950s` ...
+
+
+# constituting the corpus
+
+. . .
+
+```{r corpus, results="asis"}
+js <- meta %>% group_by(journaltitle) %>%
+    summarize(name=str_trim(unique(journaltitle)),
+              start=year(min(date)),
+              end=year(max(date)),
+              articles=n()) %>%
+    arrange(start) %>%
+    select(name,start,end)
+print(xtable(as.matrix(js)),comment=F,include.rownames=F)
+```
+
+`r nrow(meta)` total articles.
+
+
+
+# featurization
+
+- *bag of words* representation: standard but not inevitable  
+  (unless you only have access to the bags...)
+- "document": bibliographic item, or larger, or smaller?
+- feature classes (*types*): tokenizing, standardizing, stemming, lemmatizing
+- pruning: stop lists, infrequent types
+
+
+# there's no app for that
+
+```{r eval=F,echo=T}
+# fv is a vector of filenames
+counts <- vector("list",length(fv))
+n_types <- integer(length(fv))
+for(i in seq_along(fv)) { 
+    counts[[i]] <- read.csv(fv[i],strip.white=T,header=T,
+        as.is=T,colClasses=c("character","integer"))
+    n_types[i] <- nrow(counts[[i]])
+}
+wordtype <- do.call(c,lapply(counts,"[[","WORDCOUNTS"))
+wordweight <- do.call(c,lapply(counts,"[[","WEIGHT"))
+data.frame(id=rep(filename_id(fv),times=n_types),
+           WORDCOUNTS=wordtype, WEIGHT=wordweight,
+           stringsAsFactors=F)
+
+# etc. etc. etc. etc. etc. etc.
+```
+
+
+# model: how to write an article
+
+> 1. Fix a length: 5000 words
+> 2. Randomly choose topic proportions
+>     a. *the late 19th century*, 40% or 2000 words
+      b. *power/subjectivity*, 40% or 2000 words
+      c. *social class*, 20% or 1000 words
+> 3. Randomly choose words from each topic
+      a. *late 19th*: *wilde*, 20; *james*, 15...
+      b. *power/subjectivity*: *own*, 15; *power*, 10; *subject*, 8; *discourse*, 7...
+> 4. Leave words in random order
+> 5. Publication and fame
+
+. . .
+
+\footnotesize ([a not so arbitrary example](http://rci.rutgers.edu/~ag978/quiet/#/doc/9985)) \normalsize
+
+
+# modeling parameters
+
+. . .
+
+```{r modeling,eval=F,echo=T}
+library(mallet)
+trainer <- MalletLDA(n_topics,alpha_sum,b)
+trainer$model$setNumThreads(threads)
+trainer$model$setRandomSeed(seed)
+trainer$loadDocuments(instances)
+trainer$setAlphaOptimization(n_hyper_iters,n_burn_in)
+trainer$train(n_iters)
+trainer$maximize(n_max_iters)
+```
+
+. . .
+
+Some help with this: [github.com/agoldst/dfrtopics](http://github.com/agoldst/dfrtopics)
+
+
+# tabula rasa?
+
+An important, general digital humanities goal...might be called tabula rasa interpretation—the initiation of interpretation through the hypothesis-free discovery of phenomena....However, tabula rasa interpretation puts in question [the aspiration] to get from numbers to humanistic meaning.  
+
+\cite[414]{liu:meaning}
+
+
+# model outputs (1)
+
+. . .
+
+````
+0.17606 see even own both rather view role 
+0.12924 other different process experience individual two both 
+0.00777 beowulf old english ic pe mid swa 
+0.04118 law legal justice rights right laws case 
+0.01694 voltaire rousseau mme french corneille plus diderot 
+0.03112 shakespeare play hamlet king scene plays lear 
+0.10974 words voice speech own like know way 
+0.02935 derrida other always question text even time 
+0.02637 new public city urban american space world 
+````
+
+
+# model outputs (2)
+
+- each individual feature (word) of each document is assigned to an estimated-most-likely topic ("final sampling state")
+
+> Virginia Woolf~62~ once wrote~50~ that putting~43~ a serious argument~7~ into a review~17~ is like cramming a large~50~ parcel~29~ into the pocket~43~ of a good~50~ coat~43~
+
+. . .
+
+> truth~109~ truth~109~ truth~109~ truth~109~ truth~109~ truth~109~ truth~109~ truth~109~ truth~109~
+
+. . .
+
+whence:
+
+- a $k \times V$ matrix of the probability of each feature in each topic
+- a $k \times N$ matrix of proportions of topics in each of $N$ documents
+
+
+
+
+# lies, damn lies, and topics (1)
+
+We refer to the latent multinomial variables in the LDA model as topics, so as to exploit text-oriented intuitions, but we make no epistemological claims regarding these latent variables beyond their utility in representing probability distributions on sets of words.
+
+\cite[996n1]{blei-ng-jordan:lda}
+
+
+# lies, damn lies, and topics (2)
+
+```{r social-topic, fig.cap="A thematic topic"}
+m$keys %>%
+    filter(topic == 138) %>%
+    top_n(10, weight) %>%
+    topic_keyword_plot(138) + ggtitle("")
+```
+
+
+
+# lies, damn lies, and topics (3)
+
+```{r italian-topic, fig.cap="A ``foreign'' language topic"}
+m$keys %>%
+    filter(topic == 34) %>%
+    top_n(10, weight) %>%
+    topic_keyword_plot(34) + ggtitle("")
+```
+
+
+# lies, damn lies, and topics (4)
+
+
+```{r world-topic, fig.cap="A broadly discursive topic"}
+m$keys %>%
+    filter(topic == 93) %>%
+    top_n(10, weight) %>%
+    topic_keyword_plot(93) + ggtitle("")
+```
+
+
+# lies, damn lies, and topics (5)
+
+```{r garbage-topic, fig.cap="A garbage topic"}
+m$keys %>%
+    filter(topic == 128) %>%
+    top_n(10, weight) %>%
+    topic_keyword_plot(128) + ggtitle("")
+```
+
+
+
+# iterative exploration
+
+- [agoldst.github.io/dfr-browser](http://agoldst.github.io/dfr-browser)
+- *Quiet Transformations*: [rci.rutgers.edu/~ag978/quiet/](http://rci.rutgers.edu/~ag978/quiet/)
+
+Example: interpreting *social work form*  
+[rci.rutgers.edu/~ag978/quiet/#/topic/128](http://rci.rutgers.edu/~ag978/quiet/#/topic/128)
+
+
+# terms in context
+
+```{r nature-topics, results="asis"}
+nature_names <- m$keys %>%
+    group_by(topic) %>%
+    top_n(10,weight) %>%
+    filter("nature" %in% word) %>%
+    arrange(topic,weight) %>%
+    summarize(name=paste(word,collapse=" ")) %>%
+    mutate(name=paste(topic,name)) %>%
+    select(name) %>%
+    unlist() %>%
+    gsub("nature","\\\\alert{nature}",.) %>%
+    paste(collapse="  \n") %>%
+    cat()
+```
+
+
+# defects of the virtues
+
+The top few words in a topic only give a small sense of the thousands of the words that constitute the whole probability distribution.
+
+\cite{schmidt:words}
+
+
+# moving target
+
+
+
+```{r yearly-tops,results="asis"}
+load(file.path(mdir,sprintf("tytm/%03d.rda",16)))
+top_words <- topic_yearly_top_words(tytm_result$tym,tytm_result$yseq,m$vocab)
+dec_tops <- top_words[year(names(top_words)) %% 10 == 0]
+dec_tops_m <- matrix(c(year(names(dec_tops)),unname(dec_tops)),ncol=2)
+colnames(dec_tops_m) <- c("article year","top topic 16 words")
+dec_tops_m %>%
+    xtable(caption=
+           "Top words assigned to Topic 16 \\emph{criticism work critical theory}"
+           ) %>%
+    print(comment=F,include.rownames=F)
+```
+
+# virtues of the defects
+
+
+. . .
+
+```{r philological,fig.cap="Philology and textual-studies topics"}
+philo_topics <- c(73, 117, 133, 142)
+philo_series <- m$series %>% filter(topic %in% philo_topics) %>%
+    mutate(label=m$top_words[topic]) %>%
+    mutate(weight=weight * 100)
+
+ggplot(philo_series, aes(year, weight)) +
+    facet_wrap(~ label, ncol=1, scales="free_y")  +
+    ylab("words in topic per 100") +
+    series_geom + smoother() + plot_theme
+
+```
+
+
+# rise and rise
+ 
+```{r word-series}
+load(file.path(mdir,"tym.rda"))
+m$term_year <- tym_result$tym
+m$term_year_yseq <- tym_result$yseq
+term_year_totals <- colSums(m$term_year)
+
+series_word <- term_year_series_frame("criticism",
+    term_year=m$term_year,
+    year_seq=m$term_year_yseq,
+    vocab=m$vocab,
+    raw_counts=F,
+    denominator=term_year_totals) %>%
+    mutate(label="the word “criticism”") %>%
+    select(label, year, weight)
+```
+
+
+```{r criticism, fig.cap="Criticism as topic and key word"}
+top16 <- m$series %>% filter(topic==16) %>%
+    select(label, year, weight)
+crit_series <- rbind(top16,series_word) %>%
+    mutate(weight=weight*10000)
+
+ggplot(crit_series, aes(year,weight)) +
+    facet_wrap(~ label,ncol = 1, scales="free_y") +
+    ylab("words per 10000") +
+    series_geom + smoother() + plot_theme
+```
+
+# "criticism" and theory
+
+```{r poststruct-names, results="asis", fig.cap="“Criticism” across topics"}
+post_topics <- c(16, 94, 20, 143)
+# cat(paste(m$top_words[post_topics],collapse="  \n"))
+
+term_series <- list()
+for (j in seq_along(post_topics)) {
+    topic <- post_topics[j]
+    load(file.path(mdir,sprintf("tytm/%03d.rda",topic)))
+    wts <- as.vector(topic_term_time_series("criticism",tytm_result$tym,
+                                            vocab=m$vocab)) /
+        term_year_totals
+    term_series[[j]] <- data.frame(topic=topic,weight=wts,
+                                   year=as.Date(tytm_result$yseq))
+}
+crit_topics <- do.call(rbind,term_series)
+crit_words <- topic_top_words(m$keys,n=3)[post_topics,]
+crit_labels <- paste(crit_words[,1],crit_words[,2],crit_words[,3], sep="\n")
+crit_topics$topic <- factor(crit_topics$topic, levels=post_topics, 
+                            labels=crit_labels, ordered=T)
+crit_topics$weight <- crit_topics$weight * 1000
+
+ggplot(crit_topics, aes(year,weight)) +
+    geom_area(aes(color=topic, fill=topic), position="stack") +
+    ylab("“criticism” in topic per 1000") +
+    theme(legend.position="bottom")
+
+```
+
+
+# reading
+
+```{r reading-interp, fig.cap="Reading and interpretation as topics"}
+read_interp <- m$series %>% filter(topic %in% c(20,117,39))  %>%
+    mutate(weight=weight * 100)
+ggplot(read_interp, aes(year,weight)) +
+    facet_wrap(~ label,ncol=1) +
+    ylab("words in topic per 100") +
+    series_geom + smoother() + plot_theme
+```
+
+
+
+# recent developments
+
+```{r recent, results="asis"}
+recent_theory <- c(143,015,058,138)
+
+recent_themes <- c(069,019,025,077,048,036,
+                   004,102,108)             
+
+cat(paste(m$top_words[c(recent_theory,recent_themes)],collapse="  \n"))
+```
+
+Browser visualization: topics sorted by time of peak  
+[rci.rutgers.edu/~ag978/quiet/#/model/list/year/down](http://rci.rutgers.edu/~ag978/quiet/#/model/list/year/down)
+
+
+# polemic: no returns
+
+
+
+# further: discussions
+
+- \fullcite{blei-ng-jordan:lda}
+- \cite{blei:topic-model}
+- \cite{mimno:computational} 
+- \cite{bogdanov-mohr:topic}
+- \cite{weingart-meeks:topic}
+- \cite{grimmer-stewart:text}
+
+# further: software
+
+- \cite{mallet}
+- Blei group software  
+  <http://www.cs.princeton.edu/~blei/topicmodeling.html>
+- David Mimno, jsLDA, <http://mimno.infosci.cornell.edu/jsLDA/>
+- visualizations: see  
+  <http://agoldst.github.io/dfr-browser/#the-polished-options>
+- next on my Xmas list: the structural topic model  
+  <http://cran.r-project.org/web/packages/stm/>
+

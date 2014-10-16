@@ -1,0 +1,21 @@
+\usepackage{pgfpages}
+\setbeameroption{hide notes}
+
+\usecolortheme{default}
+
+\usefonttheme{professionalfonts}
+\setmainfont{Gill Sans}
+\setsansfont{Gill Sans}
+\setbeamerfont{quote}{shape=\upshape}
+\urlstyle{same}
+
+\setbeamertemplate{navigation symbols}{}
+
+\usepackage{ragged2e}
+\justifying
+
+% pandoc makes 2nd-lever headers into blocks
+\addtobeamertemplate{block begin}{}{\justifying}
+
+
+\input{macros.tex}
