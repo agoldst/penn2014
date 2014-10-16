@@ -4,5 +4,5 @@ This is probably mostly of interest to anyone curious about how one might develo
 
 Naturally the source will not actually process successfully, absent the data files. This source code is for demonstration, not for unmodified use.
 
-This material is my own work, building on modeling work done in collaboration with Ted Underwood for our article [The Quiet Transformations of Literary Studies: What Thirteen Thousand Scholars Could Tell Us](http://dx.doi.org/doi:10.7282/T3222RZT), forthcoming in *New Literary History*.  I release the source code portions under the terms of the [CRAPL](http://matt.might.net/articles/crapl/CRAPL-LICENSE.txt).
+This talk is my own work, drawing extensively on work I have done in collaboration with Ted Underwood for our article [The Quiet Transformations of Literary Studies: What Thirteen Thousand Scholars Could Tell Us](http://dx.doi.org/doi:10.7282/T3222RZT), forthcoming in *New Literary History*.  
 
