@@ -361,7 +361,7 @@ nature_names <- m$keys %>%
     group_by(topic) %>%
     top_n(10,weight) %>%
     filter("nature" %in% word) %>%
-    arrange(topic,weight) %>%
+    arrange(topic,desc(weight)) %>%
     summarize(name=paste(word,collapse=" ")) %>%
     mutate(name=paste(topic,name)) %>%
     select(name) %>%
